@@ -64,5 +64,4 @@ if __name__ == "__main__":
     source_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Nov 2025"
     consolidated_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidatedpdfs"
     newfiles_base_path = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Monthlynewfiles"
-
     consolidate_pdfs(source_folder, consolidated_folder, newfiles_base_path)
