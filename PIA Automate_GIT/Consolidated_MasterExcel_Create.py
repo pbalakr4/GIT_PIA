@@ -1,8 +1,9 @@
 
 import os
 import pandas as pd
+from datetime import datetime
 
-def sync_and_update_master_detailed(source_folder, consolidated_master_path):
+def sync_and_update_master_detailed(source_folder, consolidated_master_path, sheet_name="All up", log_dir="C:/Users/PBalakr4/OneDrive - T-Mobile USA/Documents/PIA Automate/Logs"):
     # Validate paths
     if not os.path.exists(source_folder):
         print(f"Source folder '{source_folder}' does not exist.")
@@ -10,6 +11,15 @@ def sync_and_update_master_detailed(source_folder, consolidated_master_path):
     if not os.path.exists(consolidated_master_path):
         print(f"Consolidated master file '{consolidated_master_path}' does not exist.")
         return
+
+    # Ensure log directory exists
+    os.makedirs(log_dir, exist_ok=True)
+
+    # Generate log file name based on script name and current timestamp
+    script_name = os.path.splitext(os.path.basename(__file__))[0] if '__file__' in globals() else 'Consolidated_MasterExcel_Create'
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_file_name = f"{script_name}_{timestamp}.txt"
+    log_file_path = os.path.join(log_dir, log_file_name)
 
     # Find the first Excel file in the source folder
     excel_files = [f for f in os.listdir(source_folder) if f.lower().endswith('.xlsx')]
@@ -26,16 +36,21 @@ def sync_and_update_master_detailed(source_folder, consolidated_master_path):
         print(f"Error reading source Excel file: {e}")
         return
 
-    # Load master file or initialize empty DataFrame
+    # Load master sheet or initialize empty DataFrame
     try:
-        master_df = pd.read_excel(consolidated_master_path, engine='openpyxl')
+        master_df = pd.read_excel(consolidated_master_path, sheet_name=sheet_name, engine='openpyxl')
     except Exception:
         master_df = pd.DataFrame()
 
-    # If master file is empty, copy source data and exit
+    # If master sheet is empty, copy source data and exit
     if master_df.empty:
-        source_df.to_excel(consolidated_master_path, index=False, engine='openpyxl')
-        print(f"Master was empty. Added all {len(source_df)} rows from source.")
+        with pd.ExcelWriter(consolidated_master_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            source_df.to_excel(writer, sheet_name=sheet_name, index=False)
+        log_text = f"[{datetime.now()}] Master sheet '{sheet_name}' was empty. Added all {len(source_df)} rows from source.\n"
+        with open(log_file_path, "w", encoding="utf-8") as log_file:
+            log_file.write(log_text)
+        print(f"Log saved to: {log_file_path}\n")
+        print(log_text)
         return
 
     # Assume first column is the unique identifier (ID)
@@ -72,33 +87,45 @@ def sync_and_update_master_detailed(source_folder, consolidated_master_path):
             updated_master_df = pd.concat([updated_master_df, pd.DataFrame([src_row])], ignore_index=True)
             added_changes.append(src_row.to_dict())
 
-    # Save updated master file
+    # Save updated master sheet
     try:
-        updated_master_df.to_excel(consolidated_master_path, index=False, engine='openpyxl')
-        print("\nProcess completed successfully.")
+        with pd.ExcelWriter(consolidated_master_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            updated_master_df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-        # Display updates in tabular format
+        # Prepare log content
+        log_lines = [f"[{datetime.now()}] Process completed successfully."]
         if updated_changes:
-            print("\nRows Updated:")
-            print(pd.DataFrame(updated_changes))
+            log_lines.append("Rows Updated:")
+            log_lines.append(pd.DataFrame(updated_changes).to_string(index=False))
         else:
-            print("\nNo rows were updated.")
+            log_lines.append("No rows were updated.")
 
         if added_changes:
-            print("\nRows Added:")
-            print(pd.DataFrame(added_changes))
+            log_lines.append("Rows Added:")
+            log_lines.append(pd.DataFrame(added_changes).to_string(index=False))
         else:
-            print("\nNo rows were added.")
+            log_lines.append("No rows were added.")
 
-        print(f"\nTotal IDs updated: {len(set([c['ID'] for c in updated_changes]))}")
-        print(f"Total IDs added: {len(added_changes)}")
+        log_lines.append(f"Total IDs updated: {len(set([c['ID'] for c in updated_changes]))}")
+        log_lines.append(f"Total IDs added: {len(added_changes)}")
+        log_text = "\n".join(log_lines) + "\n\n"
+
+        # Write to new log file
+        with open(log_file_path, "w", encoding="utf-8") as log_file:
+            log_file.write(log_text)
+
+        # Print to console
+        print(f"Log saved to: {log_file_path}\n")
+        print(log_text)
 
     except Exception as e:
         print(f"Error saving updated master file: {e}")
 
 if __name__ == "__main__":
-    # ✅ Hardcoded paths
+    # ✅ Hardcoded paths and sheet name
     source_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Nov 2025"
     consolidated_master_path = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidated_master.xlsx"
+    sheet_name = "All up"
+    log_dir = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Logs"
 
-    sync_and_update_master_detailed(source_folder, consolidated_master_path)
+    sync_and_update_master_detailed(source_folder, consolidated_master_path, sheet_name, log_dir)
