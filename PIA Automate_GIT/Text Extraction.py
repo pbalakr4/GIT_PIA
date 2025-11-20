@@ -15,11 +15,12 @@ COLUMNS_TO_COPY = ["ID", "Name", "Stage", "Date created", "Respondent", "Date su
 # Multiple search phrases (OR condition)
 SEARCH_PHRASES = [
     "Does this initiative involve the collection, use, storage, or sharing of Personal Data?",
-    "Does this processing activity involve Personal Data?","Does this processing activity involve Personal Information?"
+    "Does this processing activity involve Personal Data?",
+    "Does this processing activity involve Personal Information?"
 ]
 
-# Stop string
-STOP_STRING = "Justification"
+# Multiple stop strings
+STOP_STRINGS = ["Justification"]
 
 # Column name for combined responses
 COMBINED_COLUMN = "Contain Personal Data"
@@ -57,7 +58,7 @@ def update_extract():
     print("✅ Extract.xlsx updated successfully.")
 
 # ---------------- PART 2: Extract text from PDFs ----------------
-def extract_text_from_pdf(pdf_path, phrase, stop_string):
+def extract_text_from_pdf(pdf_path, phrase, stop_strings):
     reader = PdfReader(pdf_path)
     text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
 
@@ -69,8 +70,9 @@ def extract_text_from_pdf(pdf_path, phrase, stop_string):
             # Remove any lingering "Response" at the start
             after_response = re.sub(r"^Response\s*", "", after_response, flags=re.IGNORECASE)
 
-            # Stop at next section or stop string
-            stop_match = re.search(r"\n\d+\.\d+|\b" + re.escape(stop_string) + r"\b", after_response)
+            # Build regex for multiple stop strings
+            stop_pattern = r"\n\d+\.\d+|\b(" + "|".join(map(re.escape, stop_strings)) + r")\b"
+            stop_match = re.search(stop_pattern, after_response)
             if stop_match:
                 return after_response[:stop_match.start()].strip()
             else:
@@ -93,19 +95,22 @@ def process_pdfs():
 
                     responses = []
                     for phrase in SEARCH_PHRASES:
-                        extracted_text = extract_text_from_pdf(pdf_path, phrase, STOP_STRING)
+                        extracted_text = extract_text_from_pdf(pdf_path, phrase, STOP_STRINGS)
                         if extracted_text:
                             responses.append(extracted_text)
                             print(f"✅ Extracted for ID {row_id} | Phrase: {phrase} | Text: {extracted_text}")
                         else:
                             print(f"⚠️ No match for phrase '{phrase}' in PDF for ID {row_id}")
 
-                    # Combine responses into one column
+                    # Combine responses or mark as Not Found
                     if responses:
                         combined_text = "; ".join(responses)
                         extract_df.at[idx, COMBINED_COLUMN] = combined_text
+                    else:
+                        extract_df.at[idx, COMBINED_COLUMN] = "Not found in PDF"
                     break
         if not pdf_found:
+            extract_df.at[idx, COMBINED_COLUMN] = "Not found in PDF"
             print(f"❌ No PDF found for ID {row_id}")
 
     extract_df.to_excel(EXTRACT_PATH, index=False)
