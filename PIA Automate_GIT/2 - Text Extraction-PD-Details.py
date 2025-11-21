@@ -3,6 +3,7 @@ import os
 import re
 import pandas as pd
 from PyPDF2 import PdfReader
+from openpyxl import load_workbook
 
 # Hardcoded paths
 MASTER_PATH = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidated_Master.xlsx"
@@ -46,7 +47,7 @@ COMBINED_COLUMN = "What Personal Data is involved"
 # ---------------- PART 1: Update Extract.xlsx ----------------
 def update_extract():
     master_df = pd.read_excel(MASTER_PATH)
-    extract_df = pd.read_excel(EXTRACT_PATH)
+    extract_df = pd.read_excel(EXTRACT_PATH, sheet_name="Raw Extract")
 
     for col in COLUMNS_TO_COPY:
         if col not in extract_df.columns:
@@ -69,8 +70,11 @@ def update_extract():
             new_row[COMBINED_COLUMN] = ""
             extract_df = pd.concat([extract_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    extract_df.to_excel(EXTRACT_PATH, index=False)
-    print("✅ Extract.xlsx updated successfully.")
+    # Write back only to "Raw Extract" sheet without deleting others
+    with pd.ExcelWriter(EXTRACT_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+        extract_df.to_excel(writer, sheet_name="Raw Extract", index=False)
+
+    print("✅ Extract.xlsx updated successfully (Raw Extract sheet only).")
 
 # ---------------- PART 2: Extract text from PDFs ----------------
 def clean_extracted_text(raw_text):
@@ -85,19 +89,14 @@ def clean_extracted_text(raw_text):
     return " | ".join(cleaned_lines)
 
 def remove_unwanted_phrases(text, phrases_to_remove):
-    # Remove specific phrases
     for phrase in phrases_to_remove:
         text = re.sub(r"\b" + re.escape(phrase) + r"\b", "", text, flags=re.IGNORECASE)
 
-    # Remove page numbers like "5 / 11"
-    text = re.sub(r"\b\d+\s*/\s*\d+\b", "", text)
-
-    # Remove full or partial date-time fragments
+    text = re.sub(r"\b\d+\s*/\s*\d+\b", "", text)  # Remove page numbers
     text = re.sub(r"\d{4}\s+\d{1,2}:\d{2}\s*(AM|PM)?", "", text)  # Year + time
     text = re.sub(r"\d{1,2}:\d{2}\s*(AM|PM)?", "", text)          # Standalone time
     text = re.sub(r"\d{2}/\d{2}/\d{4}", "", text)                # Date like 02/04/2025
 
-    # Clean extra separators
     text = re.sub(r"\s*\|\s*", " | ", text).strip(" |")
     return text
 
@@ -112,9 +111,8 @@ def extract_text_from_pdf(pdf_path, phrase, stop_strings):
             after_response = text[response_index + len("Response"):].lstrip()
             after_response = re.sub(r"^Response\s*", "", after_response, flags=re.IGNORECASE)
 
-            # Improved section marker detection
             stop_pattern = r"(" + "|".join(map(re.escape, stop_strings)) + r")"
-            section_pattern = r"\b\d+\.\d+\b"  # Matches section numbers like 1.7, 1.8
+            section_pattern = r"\b\d+\.\d+\b"
 
             stop_match = re.search(stop_pattern, after_response)
             section_match = re.search(section_pattern, after_response)
@@ -131,7 +129,7 @@ def extract_text_from_pdf(pdf_path, phrase, stop_strings):
     return None
 
 def process_pdfs():
-    extract_df = pd.read_excel(EXTRACT_PATH)
+    extract_df = pd.read_excel(EXTRACT_PATH, sheet_name="Raw Extract")
 
     for idx, row in extract_df.iterrows():
         row_id = str(row["ID"])
@@ -162,8 +160,11 @@ def process_pdfs():
             extract_df.at[idx, COMBINED_COLUMN] = "Not found in PDF"
             print(f"❌ No PDF found for ID {row_id}")
 
-    extract_df.to_excel(EXTRACT_PATH, index=False)
-    print("✅ PDF processing completed and Extract.xlsx updated.")
+    # Write back only to "Raw Extract" sheet without deleting others
+    with pd.ExcelWriter(EXTRACT_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
+        extract_df.to_excel(writer, sheet_name="Raw Extract", index=False)
+
+    print("✅ PDF processing completed and Raw Extract sheet updated.")
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
