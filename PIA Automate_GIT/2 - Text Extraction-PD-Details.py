@@ -44,6 +44,28 @@ REMOVE_PHRASES = [
 # Column name
 COMBINED_COLUMN = "What Personal Data is involved"
 
+# Exception phrases to keep intact
+EXCEPTION_PHRASES = [
+    "Postal Code",
+    "Interactions with third party mobile applications",
+    "Wireless User Cellular Latitude and Longitude",
+    "Individual's Language use or preference",
+    "Interactions with advertisements",
+    "Web Cookies or tracking tokens",
+    "Interactions with third party internet websites"
+]
+
+# ---------------- Utility: Fix broken phrases ----------------
+def fix_exceptions(text, exception_phrases):
+    sep = r"(?:\s+|\s*\|\s*)"
+    for phrase in exception_phrases:
+        tokens = phrase.split()
+        if len(tokens) < 2:
+            continue
+        pattern = r"\b" + sep.join(re.escape(tok) for tok in tokens) + r"\b"
+        text = re.sub(pattern, " ".join(tokens), text, flags=re.IGNORECASE)
+    return text
+
 # ---------------- PART 1: Update Extract.xlsx ----------------
 def update_extract():
     master_df = pd.read_excel(MASTER_PATH)
@@ -63,46 +85,62 @@ def update_extract():
         if row_id in extract_df["ID"].values:
             idx = extract_df[extract_df["ID"] == row_id].index[0]
             for col in COLUMNS_TO_COPY:
-                if pd.notna(row[col]) and extract_df.at[idx, col] != row[col]:
+                if pd.notna(row.get(col)) and extract_df.at[idx, col] != row[col]:
                     extract_df.at[idx, col] = row[col]
         else:
             new_row = {col: row[col] if col in row else "" for col in COLUMNS_TO_COPY}
             new_row[COMBINED_COLUMN] = ""
             extract_df = pd.concat([extract_df, pd.DataFrame([new_row])], ignore_index=True)
 
-    # Write back only to "Raw Extract" sheet without deleting others
     with pd.ExcelWriter(EXTRACT_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
         extract_df.to_excel(writer, sheet_name="Raw Extract", index=False)
 
-    print("✅ Extract.xlsx updated successfully (Raw Extract sheet only).")
+    print("✅ Extract.xlsx updated successfully.")
 
 # ---------------- PART 2: Extract text from PDFs ----------------
 def clean_extracted_text(raw_text):
-    lines = raw_text.splitlines()
+    # Split lines and remove empty
+    lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+
+    # Remove duplicates while preserving order
     seen = set()
-    cleaned_lines = []
+    unique_lines = []
     for line in lines:
-        line = line.strip()
-        if line and line not in seen:
+        if line not in seen:
             seen.add(line)
-            cleaned_lines.append(line)
-    return " | ".join(cleaned_lines)
+            unique_lines.append(line)
+
+    # Join with separator
+    text = " | ".join(unique_lines)
+
+    # Global deduplication after joining
+    parts = text.split(" | ")
+    text = " | ".join(dict.fromkeys(parts))  # preserves order
+
+    # Fix exceptions where ' | ' splits phrases
+    text = fix_exceptions(text, EXCEPTION_PHRASES)
+
+    # Normalize spacing
+    text = re.sub(r"\s*\|\s*", " | ", text).strip(" |")
+    return text
 
 def remove_unwanted_phrases(text, phrases_to_remove):
     for phrase in phrases_to_remove:
         text = re.sub(r"\b" + re.escape(phrase) + r"\b", "", text, flags=re.IGNORECASE)
-
-    text = re.sub(r"\b\d+\s*/\s*\d+\b", "", text)  # Remove page numbers
-    text = re.sub(r"\d{4}\s+\d{1,2}:\d{2}\s*(AM|PM)?", "", text)  # Year + time
-    text = re.sub(r"\d{1,2}:\d{2}\s*(AM|PM)?", "", text)          # Standalone time
-    text = re.sub(r"\d{2}/\d{2}/\d{4}", "", text)                # Date like 02/04/2025
-
+    text = re.sub(r"\b\d+\s*/\s*\d+\b", "", text)
+    text = re.sub(r"\d{4}\s+\d{1,2}:\d{2}\s*(AM|PM)?", "", text)
+    text = re.sub(r"\d{1,2}:\d{2}\s*(AM|PM)?", "", text)
+    text = re.sub(r"\d{2}/\d{2}/\d{4}", "", text)
     text = re.sub(r"\s*\|\s*", " | ", text).strip(" |")
     return text
 
 def extract_text_from_pdf(pdf_path, phrase, stop_strings):
     reader = PdfReader(pdf_path)
     text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+
+    # Debug: Show first 500 chars of raw text
+    print(f"\n[DEBUG] Extracted text from {os.path.basename(pdf_path)} (first 500 chars):")
+    print(text[:500])
 
     if phrase in text:
         phrase_index = text.find(phrase)
@@ -124,8 +162,18 @@ def extract_text_from_pdf(pdf_path, phrase, stop_strings):
             else:
                 raw_text = after_response.strip()
 
+            # Debug: Show raw extracted section before cleaning
+            print(f"[DEBUG] Raw extracted section for phrase '{phrase}':")
+            print(raw_text[:500])
+
             cleaned_text = clean_extracted_text(raw_text)
-            return remove_unwanted_phrases(cleaned_text, REMOVE_PHRASES)
+            cleaned_text = remove_unwanted_phrases(cleaned_text, REMOVE_PHRASES)
+
+            # Debug: Show cleaned text
+            print(f"[DEBUG] Cleaned text after processing:")
+            print(cleaned_text)
+
+            return cleaned_text
     return None
 
 def process_pdfs():
@@ -140,13 +188,14 @@ def process_pdfs():
                 if file_id == row_id:
                     pdf_found = True
                     pdf_path = os.path.join(PDF_FOLDER, file)
+                    print(f"\n📄 Processing PDF for ID {row_id}: {pdf_path}")
 
                     responses = []
                     for phrase in SEARCH_PHRASES:
                         extracted_text = extract_text_from_pdf(pdf_path, phrase, STOP_STRINGS)
                         if extracted_text:
                             responses.append(extracted_text)
-                            print(f"✅ Extracted for ID {row_id} | Phrase: {phrase} | Text: {extracted_text}")
+                            print(f"✅ Extracted for ID {row_id} | Phrase: {phrase}")
                         else:
                             print(f"⚠️ No match for phrase '{phrase}' in PDF for ID {row_id}")
 
@@ -160,11 +209,10 @@ def process_pdfs():
             extract_df.at[idx, COMBINED_COLUMN] = "Not found in PDF"
             print(f"❌ No PDF found for ID {row_id}")
 
-    # Write back only to "Raw Extract" sheet without deleting others
     with pd.ExcelWriter(EXTRACT_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
         extract_df.to_excel(writer, sheet_name="Raw Extract", index=False)
 
-    print("✅ PDF processing completed and Raw Extract sheet updated.")
+    print("\n✅ PDF processing completed and Raw Extract sheet updated.")
 
 # ---------------- MAIN ----------------
 if __name__ == "__main__":
