@@ -114,7 +114,7 @@ def extract_text_from_pdf(pdf_path, phrase, stop_strings):
 def process_pdfs():
     extract_df = pd.read_excel(EXTRACT_PATH, sheet_name="Raw Extract")
 
-    for idx, row in extract_df.iterrows():
+        for idx, row in extract_df.iterrows():
         row_id = str(row["ID"])
         pdf_found = False
         for file in os.listdir(PDF_FOLDER):
