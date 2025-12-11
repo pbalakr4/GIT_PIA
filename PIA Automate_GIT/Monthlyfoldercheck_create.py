@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # newfiles_base_path = input("Enter base path for newfiles folder: ").strip()
 
     # OPTION 2: Hardcode paths safely using raw strings
-    source_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Nov 2025"
+    source_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Dec 2025"
     consolidated_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidatedpdfs"
     newfiles_base_path = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Monthlynewfiles"
     consolidate_pdfs(source_folder, consolidated_folder, newfiles_base_path)

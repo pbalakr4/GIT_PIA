@@ -123,7 +123,7 @@ def sync_and_update_master_detailed(source_folder, consolidated_master_path, she
 
 if __name__ == "__main__":
     # ✅ Hardcoded paths and sheet name
-    source_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Nov 2025"
+    source_folder = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Dec 2025"
     consolidated_master_path = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidated_master.xlsx"
     sheet_name = "All up"
     log_dir = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Logs"
