@@ -1,27 +1,24 @@
+
 import os
 import re
 import sys
 from typing import Dict, List, Optional, Tuple
-
 import pandas as pd
 from PyPDF2 import PdfReader
 
 # ========= USER CONFIG =========
 EXTRACT_PATH = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Extract.xlsx"
-PDF_FOLDER = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidatedpdfs"
-MASTER_PATH = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidated_Master.xlsx"
+PDF_FOLDER   = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidatedpdfs"
+MASTER_PATH  = r"C:\Users\PBalakr4\OneDrive - T-Mobile USA\Documents\PIA Automate\Consolidated_Master.xlsx"
 MASTER_SHEET = "All up"
 EXTRACT_SHEET = "Vendor Extraction"
-
 
 # ========= LOGGING =========
 def log(msg: str) -> None:
     print(f"[INFO] {msg}")
 
-
 def warn(msg: str) -> None:
     print(f"[WARN] {msg}", file=sys.stderr)
-
 
 # ========= ID / FILENAME UTILITIES =========
 def normalize_id(val) -> Optional[str]:
@@ -35,7 +32,6 @@ def normalize_id(val) -> Optional[str]:
     m = re.search(r'(\d+)', s)
     return m.group(1) if m else None
 
-
 def extract_id_from_filename(filename: str) -> Optional[str]:
     """
     Extract trailing numeric ID that appears after the LAST '_' in the filename (before extension).
@@ -43,40 +39,30 @@ def extract_id_from_filename(filename: str) -> Optional[str]:
     """
     base = os.path.basename(filename)
     name, _ = os.path.splitext(base)
-    matches = re.findall(r'_(\d+)(?:\D|$)', name)
-    return matches[-1] if matches else None
-
-
-def detect_vendors_in_filename(filename: str) -> List[str]:
-    """
-    Detect vendor names present in the filename (case-insensitive).
-    Returns any of ['Blis', 'Vistar'].
-    Treats 'Vistor' as 'Vistar'.
-    """
-    lower = filename.lower()
-    vendors: List[str] = []
-    if "blis" in lower:
-        vendors.append("Blis")
-    if "vistar" in lower or "vistor" in lower:
-        vendors.append("Vistar")
-    return vendors
-
+    # Look for final underscore + digits at the end of the name
+    m = re.search(r'_(\d+)$', name)
+    return m.group(1) if m else None
 
 # ========= PDF PARSING =========
-# Valid section numbers: 1–99 or 1–99.0–99 (e.g., 2, 4, 2.1, 10.2, 4.0, 2.23)
-# The section must be at the start of the line. Optional punctuation after the section is allowed.
+# SECTION NUMBER RULE (updated):
+# - Must be dotted: X.Y (e.g., 1.3, 3.41, 13.2)
+# - X = 1–99 -> [1-9]\d?
+# - Y = 0–99 -> \d{1,2}
+# - Appears at the start of a line, followed optionally by punctuation like ')', '.', '-', '–' and whitespace.
 STRICT_SECTION_RE = re.compile(
-    r'^\s*([1-9]\d{0,1}(?:\.[0-9]{1,2})?)\s*(?:[)\.\-–]\s*)?(?:.*)$'
+    r'^\s*([1-9]\d?\.\d{1,2})\s*(?:[\)\.\-–]\s*)?.*$'
 )
 
+# Whole-word regexes for vendor names (case-insensitive)
+BLIS_WORD_RE   = re.compile(r'\bblis\b', flags=re.IGNORECASE)
+VISTAR_WORD_RE = re.compile(r'\bvistar\b', flags=re.IGNORECASE)
 
 def parse_pdf_occurrences(pdf_path: str) -> List[Tuple[str, str]]:
     """
-    Scan a PDF and return a list of occurrences:
-      [("Blis", "2.1"), ("Vistar", "4"), ("Blis", "Cover Page"), ...]
-    - Track valid section numbers (line starts with '2.1 ...', '4 ...', '2.23 ...').
+    Scan a PDF and return a list of occurrences: [("Blis", "2.1"), ("Vistar", "4.2"), ("Blis", "Cover Page"), ...]
     - Mentions *before* the first valid section are labeled "Cover Page".
     - Mentions *under* a section record the section number only (no question text).
+    - Only whole-word matches for 'Blis' or 'Vistar' are counted.
     """
     occurrences: List[Tuple[str, str]] = []
     try:
@@ -95,10 +81,13 @@ def parse_pdf_occurrences(pdf_path: str) -> List[Tuple[str, str]]:
             warn(f"Failed to extract text from page {page_idx} in '{pdf_path}': {e}")
             continue
 
+        # Optional normalization (enable if you see hyphenation artifacts)
+        # text = text.replace('\u00ad', '')  # remove soft hyphens
+
         for line in text.splitlines():
             line_stripped = line.strip()
 
-            # If line starts with a valid section number, update current_section_num
+            # If line starts with a valid dotted section number, update current_section_num
             m = STRICT_SECTION_RE.match(line_stripped)
             if m:
                 sec_num = m.group(1).strip()
@@ -106,23 +95,42 @@ def parse_pdf_occurrences(pdf_path: str) -> List[Tuple[str, str]]:
                 first_section_seen = True
                 continue
 
-            lower = line_stripped.lower()
+            # Whole-word checks (case-insensitive)
+            has_blis   = bool(BLIS_WORD_RE.search(line_stripped))
+            has_vistar = bool(VISTAR_WORD_RE.search(line_stripped))
 
-            # Record occurrences either under the current section, or as 'Cover Page' before any section is seen
+            # Before any section appears -> "Cover Page"
             if not first_section_seen:
-                if "blis" in lower:
+                if has_blis:
                     occurrences.append(("Blis", "Cover Page"))
-                if "vistar" in lower or "vistor" in lower:
+                if has_vistar:
                     occurrences.append(("Vistar", "Cover Page"))
             else:
+                # Under a known section -> record the section number
                 if current_section_num:
-                    if "blis" in lower:
+                    if has_blis:
                         occurrences.append(("Blis", current_section_num))
-                    if "vistar" in lower or "vistor" in lower:
+                    if has_vistar:
                         occurrences.append(("Vistar", current_section_num))
 
     return occurrences
 
+def detect_vendors_in_filename(filename: str) -> List[str]:
+    """
+    Detect vendor names present in the filename (case-insensitive).
+    Returns any of ['Blis', 'Vistar'].
+    Only matches whole words, so 'published.pdf' will NOT match 'Blis'.
+    """
+    lower = filename.lower()
+    vendors: List[str] = []
+
+    # Whole-word checks in filenames
+    if re.search(r'\bblis\b', lower, flags=re.IGNORECASE):
+        vendors.append("Blis")
+    if re.search(r'\bvistar\b', lower, flags=re.IGNORECASE):
+        vendors.append("Vistar")
+
+    return vendors
 
 # ========= EXCEL IO =========
 def read_master() -> pd.DataFrame:
@@ -131,7 +139,6 @@ def read_master() -> pd.DataFrame:
     if df.empty:
         raise ValueError("Master sheet is empty.")
     return df
-
 
 def ensure_extract_headers(master_columns: List[str]) -> pd.DataFrame:
     """
@@ -158,11 +165,11 @@ def ensure_extract_headers(master_columns: List[str]) -> pd.DataFrame:
     df = df[[*master_columns, *[c for c in df.columns if c not in master_columns]]]
     return df
 
-
 def enforce_vendor_foundin_source_at_PQR(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Ensure Column P (16th, index 15) = 'Vendor', Column Q (17th, index 16) = 'Found in',
-    Column R (18th, index 17) = 'SourceFileName'.
+    Ensure Column P (16th, index 15) = 'Vendor',
+           Column Q (17th, index 16) = 'Found in',
+           Column R (18th, index 17) = 'SourceFileName'.
     Preserves existing columns/order; pads with blank columns if fewer than 18 columns.
     """
     # Add targets if missing
@@ -209,12 +216,10 @@ def enforce_vendor_foundin_source_at_PQR(df: pd.DataFrame) -> pd.DataFrame:
     df = df[final_cols]
     return df
 
-
 def save_extract_df(df: pd.DataFrame) -> None:
     with pd.ExcelWriter(EXTRACT_PATH, engine="openpyxl", mode="a", if_sheet_exists="replace") as writer:
         df.to_excel(writer, sheet_name=EXTRACT_SHEET, index=False)
     log(f"Saved updates to {EXTRACT_PATH} (sheet '{EXTRACT_SHEET}')")
-
 
 # ========= FILE MATCHING =========
 def collect_pdf_matches(pdf_folder: str) -> Dict[str, List[str]]:
@@ -231,13 +236,14 @@ def collect_pdf_matches(pdf_folder: str) -> Dict[str, List[str]]:
             fid = extract_id_from_filename(f)
             if fid:
                 mapping.setdefault(fid, []).append(fullpath)
+
     log(f"Indexed {sum(len(v) for v in mapping.values())} PDF(s) across {len(mapping)} ID(s).")
     return mapping
-
 
 # ========= MAIN PROCESS =========
 def main() -> None:
     master_df = read_master()
+
     # Build normalized ID column (assume Column A is the first column in master)
     id_col_name = master_df.columns[0]
     master_df["_NormalizedID"] = master_df[id_col_name].apply(normalize_id)
@@ -257,7 +263,6 @@ def main() -> None:
 
     # Collect PDFs by ID (by trailing _<digits> in filename)
     id_to_pdfs = collect_pdf_matches(PDF_FOLDER)
-
     rows_appended = 0
 
     # Process each ID that has at least one matching PDF
@@ -273,7 +278,7 @@ def main() -> None:
         for pdf_path in pdfs:
             base = os.path.basename(pdf_path)
 
-            # 1) Filename occurrences: could include both vendors -> add one row per vendor (per file)
+            # 1) Filename occurrences: add one row per vendor (per file)
             vendors_in_name = detect_vendors_in_filename(base)
             for v in vendors_in_name:
                 occurrences.append((v, "Filename", base))
@@ -295,6 +300,7 @@ def main() -> None:
             new_row["Vendor"] = "Other"
             new_row["Found in"] = "Not Applicable"
             new_row["SourceFileName"] = os.path.basename(pdfs[0]) if pdfs else pd.NA
+
             extract_df = pd.concat([extract_df, pd.DataFrame([new_row])], ignore_index=True)
             rows_appended += 1
             continue
@@ -307,6 +313,7 @@ def main() -> None:
             new_row["Vendor"] = vendor
             new_row["Found in"] = found_in_display
             new_row["SourceFileName"] = source_file
+
             extract_df = pd.concat([extract_df, pd.DataFrame([new_row])], ignore_index=True)
             rows_appended += 1
 
@@ -316,10 +323,8 @@ def main() -> None:
     log(f"Appended {rows_appended} row(s) into '{EXTRACT_SHEET}'.")
     log("Completed.")
 
-
 if __name__ == "__main__":
     try:
         main()
     except Exception as e:
         warn(f"Script failed: {e}")
-
