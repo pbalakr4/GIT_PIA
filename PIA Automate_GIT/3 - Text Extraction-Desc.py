@@ -17,6 +17,8 @@ COLUMNS_TO_COPY = ["ID", "Name", "Stage", "Date created", "Respondent", "Date su
 SEARCH_PHRASES = [
     "Provide a detailed, non-technical description of the objectives and goals of the activity.",
     "Provide a brief, non-technical description of the project objectives for your system, product, or service.",
+    "Provide a brief, non-technical description of the objectives and goals of the activity.",
+    "Provide a detailed, non-technical description of the initiatives, capabilities, features, and key desired outcomes of your Initiative",
 ]
 
 # Stop strings
