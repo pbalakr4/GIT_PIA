@@ -37,7 +37,7 @@ DEFAULT_PDF_FOLDERS = [
 ]
 
 # Example IDs (comma-separated). You can override via CLI: --ids "12345,67892"
-DEFAULT_IDS_CSV = "66038,43094,67118,66837,50388"
+DEFAULT_IDS_CSV = "66836,66805,62284,67929"
 
 # Safety switches
 DEFAULT_DRY_RUN = False       # If True, shows what would be deleted without changing files
